@@ -1,0 +1,274 @@
+openapi: 3.1.0
+info:
+  title: Simpsons Quotes API
+  version: 1.0.0
+  description: |
+    Laravel-based API exposing authentication and a protected
+    endpoint that fetches, stores, and returns Simpsons quotes per user.
+    The implementation uses Sanctum for authentication, application services for
+    business logic, and Laravel API Resources for response serialization.
+    Validation errors return HTTP 422, authentication failures return HTTP 401,
+    and upstream quote provider failures return HTTP 503 with a structured error body.
+servers:
+  - url: https://simpsons-quotes-api.friedrichs-it.de
+    description: Public deployment
+  - url: http://localhost:8080
+    description: Local development server
+paths:
+  /api/auth/login:
+    post:
+      summary: Authenticate a user and issue a bearer token
+      description: |
+        Validates the submitted username and password and returns a Sanctum bearer token
+        for subsequent authenticated API requests.
+        Requests with missing or malformed fields return a validation error.
+        Requests with syntactically valid but unknown credentials return an authentication-style
+        error response with status 401.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Authentication successful
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthTokenResponse'
+        '401':
+          description: Credentials are invalid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageErrorResponse'
+              example:
+                message: The provided credentials are invalid.
+        '422':
+          description: Validation failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationErrorResponse'
+  /api/auth/logout:
+    post:
+      summary: Revoke the current bearer token
+      description: |
+        Revokes the currently used bearer token. The endpoint requires a valid Sanctum token
+        in the Authorization header.
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Token revoked
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
+        '401':
+          description: Missing or invalid token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageErrorResponse'
+  /api/quotes:
+    post:
+      summary: Create a new user quote and return the current quote plus the previous four
+      description: |
+        Resolves a random quote through the configured quote provider, stores it for the
+        authenticated user, enforces a retention limit of five stored quotes per user,
+        and returns the current quote together with up to four previously persisted quotes.
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Quote created and stored successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FetchQuoteResponse'
+        '401':
+          description: Missing or invalid token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageErrorResponse'
+        '503':
+          description: No quote could be fetched because all configured providers failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProviderErrorResponse'
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: Token
+  schemas:
+    LoginRequest:
+      type: object
+      required:
+        - username
+        - password
+      properties:
+        username:
+          type: string
+          description: Username used to authenticate against the local demo user store.
+          example: springfield-demo
+        password:
+          type: string
+          format: password
+          description: Password for the submitted username.
+          example: Springfield123!
+    AuthTokenResponse:
+      type: object
+      required:
+        - token_type
+        - access_token
+        - user
+      properties:
+        token_type:
+          type: string
+          description: Authentication scheme to use in the Authorization header.
+          example: Bearer
+        access_token:
+          type: string
+          description: Sanctum personal access token returned after successful authentication.
+          example: 1|exampletokenvalue
+        user:
+          $ref: '#/components/schemas/AuthUser'
+    AuthUser:
+      type: object
+      required:
+        - id
+        - name
+        - username
+      properties:
+        id:
+          type: integer
+          description: Internal user identifier.
+          example: 1
+        name:
+          type: string
+          description: Human-readable display name.
+          example: Springfield Demo
+        username:
+          type: string
+          description: Unique username used for login.
+          example: springfield-demo
+    FetchQuoteResponse:
+      type: object
+      required:
+        - current_quote
+        - recent_quotes
+      properties:
+        current_quote:
+          allOf:
+            - $ref: '#/components/schemas/StoredQuote'
+          description: The quote fetched during the current request.
+        recent_quotes:
+          type: array
+          maxItems: 4
+          description: Up to four previously stored quotes for the authenticated user, ordered from newest to oldest and excluding the current quote.
+          items:
+            $ref: '#/components/schemas/StoredQuote'
+    StoredQuote:
+      type: object
+      required:
+        - id
+        - quote
+        - character
+        - source
+        - fetched_at
+      properties:
+        id:
+          type: integer
+          description: Internal identifier of the persisted user quote.
+          example: 12
+        quote:
+          type: string
+          description: Text of the Simpsons quote.
+          example: Everything is coming up Milhouse.
+        character:
+          type: string
+          description: Character associated with the quote.
+          example: Milhouse Van Houten
+        image_url:
+          type: string
+          nullable: true
+          description: Optional CDN image URL received from the upstream source.
+          example: https://cdn.thesimpsonsapi.com/500/character/3.webp
+        source:
+          type: string
+          description: Origin of the quote payload, for example the primary API or the local fallback dataset.
+          example: thesimpsonsapi
+        fetched_at:
+          type: string
+          format: date-time
+          description: ISO 8601 timestamp indicating when the quote was stored for the user.
+    MessageResponse:
+      type: object
+      required:
+        - message
+      properties:
+        message:
+          type: string
+          description: Human-readable success message.
+          example: Token revoked successfully.
+    MessageErrorResponse:
+      type: object
+      required:
+        - message
+      properties:
+        message:
+          type: string
+          description: Human-readable error message.
+          example: Unauthenticated.
+    ValidationErrorResponse:
+      type: object
+      required:
+        - message
+        - errors
+      properties:
+        message:
+          type: string
+          description: Summary of the validation failure.
+          example: The username field is required. (and 1 more error)
+        errors:
+          type: object
+          description: Validation messages keyed by request field.
+          additionalProperties:
+            type: array
+            items:
+              type: string
+          example:
+            username:
+              - The username field is required.
+            password:
+              - The password field is required.
+    ProviderErrorResponse:
+      type: object
+      required:
+        - message
+        - error
+      properties:
+        message:
+          type: string
+          description: Human-readable summary of the upstream/provider failure.
+          example: Quote provider is currently unavailable.
+        error:
+          type: object
+          required:
+            - code
+            - details
+          properties:
+            code:
+              type: string
+              description: Stable machine-readable error code.
+              example: QUOTE_PROVIDER_UNAVAILABLE
+            details:
+              type: string
+              description: Additional diagnostic context for logs or debugging.
+              example: Could not fetch a quote from The Simpsons API.
