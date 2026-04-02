@@ -32,29 +32,39 @@ node('docker-agent') {
             }
         }
 
-        stage('Tests') {
-            withEnv(['COMPOSE_FILE=compose.yaml']) {
-                sh 'make test-coverage'
+        try {
+            stage('Tests') {
+                catchError(buildResult: 'FAILURE', stageResult: 'FAILURE') {
+                    withEnv(['COMPOSE_FILE=compose.yaml']) {
+                        sh 'make test-coverage'
+                    }
+                }
+            }
+
+            stage('Static Analysis') {
+                catchError(buildResult: 'FAILURE', stageResult: 'FAILURE') {
+                    withEnv(['COMPOSE_FILE=compose.yaml']) {
+                        sh 'make phpstan'
+                    }
+                }
+            }
+        } finally {
+            stage('Publish Reports') {
+                junit allowEmptyResults: true, testResults: 'storage/test-reports/phpunit.xml'
+                publishHTML(target: [
+                    allowMissing: true,
+                    alwaysLinkToLastBuild: true,
+                    keepAll: true,
+                    reportDir: 'storage/test-reports/report',
+                    reportFiles: 'index.html',
+                    reportName: 'Code Coverage Report'
+                ])
+                archiveArtifacts allowEmptyArchive: true, artifacts: 'storage/test-reports/**', fingerprint: true
             }
         }
 
-        stage('Static Analysis') {
-            withEnv(['COMPOSE_FILE=compose.yaml']) {
-                sh 'make phpstan'
-            }
-        }
-
-        stage('Publish Reports') {
-            junit allowEmptyResults: false, testResults: 'storage/test-reports/phpunit.xml'
-            publishHTML(target: [
-                allowMissing: false,
-                alwaysLinkToLastBuild: true,
-                keepAll: true,
-                reportDir: 'storage/test-reports/report',
-                reportFiles: 'index.html',
-                reportName: 'Code Coverage Report'
-            ])
-            archiveArtifacts artifacts: 'storage/test-reports/**', fingerprint: true
+        if (currentBuild.currentResult != null && currentBuild.currentResult != 'SUCCESS') {
+            error('Stopping pipeline after failed quality checks.')
         }
 
         stage('Build Docker Image') {
