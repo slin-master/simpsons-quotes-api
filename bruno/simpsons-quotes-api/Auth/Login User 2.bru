@@ -1,0 +1,28 @@
+meta {
+  name: Login User 2
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{baseUrl}}/api/auth/login
+  body: json
+  auth: none
+}
+
+headers {
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "username": "{{usernameUser2}}",
+    "password": "{{passwordUser2}}"
+  }
+}
+
+script:post-response {
+  if (res.status === 200 && res.body && res.body.access_token) {
+    bru.setEnvVar("tokenUser2", res.body.access_token);
+  }
+}

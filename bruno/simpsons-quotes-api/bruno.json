@@ -1,0 +1,10 @@
+{
+  "version": "1",
+  "name": "simpsons-quotes-api",
+  "type": "collection",
+  "ignore": [
+    "node_modules",
+    ".git",
+    ".DS_Store"
+  ]
+}

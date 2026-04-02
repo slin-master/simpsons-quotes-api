@@ -1,0 +1,15 @@
+meta {
+  name: Create Quote User 1
+  type: http
+  seq: 5
+}
+
+post {
+  url: {{baseUrl}}/api/quotes
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{tokenUser1}}
+}
