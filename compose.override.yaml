@@ -20,3 +20,5 @@ services:
         source: .
         target: /var/www/html
         consistency: consistent
+      - type: volume
+        target: /var/www/html/vendor
