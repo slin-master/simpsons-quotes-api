@@ -1,0 +1,28 @@
+includes:
+    - vendor/larastan/larastan/extension.neon
+
+parameters:
+    paths:
+        - app
+        - tests
+    level: 8
+
+    parallel:
+        maximumNumberOfProcesses: 1
+
+    tmpDir: storage/phpstan
+    inferPrivatePropertyTypeFromConstructor: true
+    treatPhpDocTypesAsCertain: false
+
+    checkUninitializedProperties: true
+    reportMaybes: true
+    checkExplicitMixed: true
+    reportUnmatchedIgnoredErrors: false
+
+    ignoreErrors:
+        - '#Access to an undefined property Illuminate\\Database\\Eloquent\\Model::\$[a-zA-Z0-9_]+#'
+        - '#Call to an undefined method Illuminate\\Database\\Eloquent\\Model::[a-zA-Z0-9_]+#'
+
+    bootstrapFiles:
+        - vendor/larastan/larastan/bootstrap.php
+        - bootstrap/app.php
