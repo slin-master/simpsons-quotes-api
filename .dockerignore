@@ -1,0 +1,16 @@
+.git
+.github
+.env
+.env.testing
+vendor
+node_modules
+.idea
+.phpunit.result.cache
+bruno
+storage/test-reports
+storage/logs
+storage/framework/cache
+storage/framework/sessions
+storage/framework/views
+storage/database/database.sqlite
+Hanseatic_Bank_Code_Challenge.pdf
