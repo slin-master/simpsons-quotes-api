@@ -31,62 +31,94 @@ class TheSimpsonsApiQuoteProvider implements QuoteProvider
         $attempts = max(1, $this->retryAttempts + 1);
         $failures = [];
 
-        for ($attempt = 0; $attempt < $attempts; $attempt++) {
-            $page = random_int($this->pageMin, $this->pageMax);
+        try {
+            /** @var QuoteData $quote */
+            $quote = retry(
+                $attempts,
+                fn (): QuoteData => $this->fetchQuoteAttempt($failures),
+                0,
+                static fn (\Throwable $exception): bool => $exception instanceof UpstreamQuoteProviderException,
+            );
 
-            try {
-                $response = $this->requestCharactersPage($page);
-            } catch (ConnectionException $exception) {
-                $this->recordFailure($failures, [
-                    'attempt' => $attempt + 1,
-                    'page' => $page,
-                    'reason' => 'connection_exception',
-                    'message' => $exception->getMessage(),
-                ]);
+            return $quote;
+        } catch (UpstreamQuoteProviderException $exception) {
+            throw $this->wrapFailures($failures, $exception);
+        }
+    }
 
-                if ($attempt === $attempts - 1) {
-                    throw new UpstreamQuoteProviderException(
-                        message: $this->buildFailureMessage($failures),
-                        context: $failures,
-                        previous: $exception,
-                    );
-                }
+    /**
+     * @param  array<int, array<string, mixed>>  $failures
+     */
+    private function fetchQuoteAttempt(array &$failures): QuoteData
+    {
+        $attempt = count($failures) + 1;
+        $page = random_int($this->pageMin, $this->pageMax);
 
-                continue;
-            }
+        $response = $this->requestPageOrFail($page, $attempt, $failures);
+        $candidates = $this->quoteCandidatesFromResponse($response);
 
-            if (! $response->successful()) {
-                $this->recordFailure($failures, [
-                    'attempt' => $attempt + 1,
-                    'page' => $page,
-                    'reason' => 'http_error',
-                    'status' => $response->status(),
-                ]);
+        if ($candidates->isEmpty()) {
+            $this->recordFailure($failures, [
+                'attempt' => $attempt,
+                'page' => $page,
+                'reason' => 'no_quote_candidates',
+            ]);
 
-                continue;
-            }
-
-            $candidates = $this->quoteCandidatesFromResponse($response);
-
-            if ($candidates->isEmpty()) {
-                $this->recordFailure($failures, [
-                    'attempt' => $attempt + 1,
-                    'page' => $page,
-                    'reason' => 'no_quote_candidates',
-                ]);
-
-                continue;
-            }
-
-            /** @var SimpsonsCharacterCandidate $candidate */
-            $candidate = $candidates->random();
-
-            return $this->mapCandidateToQuoteData($candidate);
+            throw new UpstreamQuoteProviderException(context: $failures);
         }
 
-        throw new UpstreamQuoteProviderException(
-            message: $this->buildFailureMessage($failures),
-            context: $failures,
+        /** @var SimpsonsCharacterCandidate $candidate */
+        $candidate = $candidates->random();
+
+        return $this->mapCandidateToQuoteData($candidate);
+    }
+
+    /**
+     * @param  array<int, array<string, mixed>>  $failures
+     */
+    private function requestPageOrFail(int $page, int $attempt, array &$failures): Response
+    {
+        try {
+            $response = $this->requestCharactersPage($page);
+        } catch (ConnectionException $exception) {
+            $this->recordFailure($failures, [
+                'attempt' => $attempt,
+                'page' => $page,
+                'reason' => 'connection_exception',
+                'message' => $exception->getMessage(),
+            ]);
+
+            throw new UpstreamQuoteProviderException(
+                context: $failures,
+                previous: $exception,
+            );
+        }
+
+        if ($response->successful()) {
+            return $response;
+        }
+
+        $this->recordFailure($failures, [
+            'attempt' => $attempt,
+            'page' => $page,
+            'reason' => 'http_error',
+            'status' => $response->status(),
+        ]);
+
+        throw new UpstreamQuoteProviderException(context: $failures);
+    }
+
+    /**
+     * @param  array<int, array<string, mixed>>  $failures
+     */
+    private function wrapFailures(array $failures, UpstreamQuoteProviderException $exception): UpstreamQuoteProviderException
+    {
+        $context = $failures !== [] ? $failures : $exception->context();
+
+        return new UpstreamQuoteProviderException(
+            message: $this->buildFailureMessage($context),
+            context: $context,
+            previous: $exception->getPrevious() ?? $exception,
         );
     }
 
