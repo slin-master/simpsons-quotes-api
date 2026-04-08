@@ -24,45 +24,41 @@ class UserQuoteService
     {
         $quoteData = $this->quoteProvider->randomQuote();
         $limit = $this->quotesPerUser;
+        $recentLimit = max(0, $limit - 1);
 
-        /** @var array{current: UserQuote, recent: array<int, UserQuote>} $result */
-        $result = DB::transaction(function () use ($user, $quoteData, $limit): array {
+        /** @var array{current: UserQuote, recent: Collection<int, UserQuote>} $result */
+        $result = DB::transaction(function () use ($user, $quoteData, $limit, $recentLimit): array {
             $currentQuote = $user->quotes()->create([
                 ...$quoteData->toArray(),
                 'fetched_at' => now(),
             ]);
 
-            $idsToDelete = $user->quotes()
-                ->orderByDesc('fetched_at')
-                ->orderByDesc('id')
-                ->toBase()
-                ->limit(PHP_INT_MAX)
-                ->offset($limit)
-                ->pluck('id');
-
-            if ($idsToDelete->isNotEmpty()) {
-                UserQuote::query()->whereKey($idsToDelete)->delete();
-            }
-
-            /** @var array<int, UserQuote> $quotes */
-            $quotes = $user->quotes()
-                ->orderByDesc('fetched_at')
-                ->orderByDesc('id')
-                ->limit($limit)
-                ->get()
-                ->all();
+            UserQuote::query()
+                ->where('user_id', $user->getKey())
+                ->whereNotIn('id', function ($query) use ($user, $limit): void {
+                    $query->select('id')
+                        ->from('user_quotes')
+                        ->where('user_id', $user->getKey())
+                        ->orderByDesc('fetched_at')
+                        ->orderByDesc('id')
+                        ->limit($limit);
+                })
+                ->delete();
 
             return [
-                'current' => $currentQuote->fresh(),
-                'recent' => array_slice($quotes, 1, max(0, $limit - 1)),
+                'current' => $currentQuote,
+                'recent' => $user->quotes()
+                    ->whereKeyNot($currentQuote->getKey())
+                    ->orderByDesc('fetched_at')
+                    ->orderByDesc('id')
+                    ->limit($recentLimit)
+                    ->get(),
             ];
         });
 
-        $recentQuotes = collect($result['recent']);
-
         return [
             'current' => $result['current'],
-            'recent' => $recentQuotes->values(),
+            'recent' => $result['recent']->values(),
         ];
     }
 }
