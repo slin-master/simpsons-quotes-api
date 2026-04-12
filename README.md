@@ -61,7 +61,7 @@ Useful endpoints:
 - `POST /api/quotes`
 - `GET /docs/openapi.yaml`
 
-For live deployment, `compose.yaml` exposes the application on host port `8087`, which is consumed by the HAProxy frontend for `simpsons-quotes-api.friedrichs-it.de`.
+For production deployment, the application is packaged as a container image, released via Jenkins, and rolled out on Kubernetes through the Helm chart in the `apitree/helm-charts` repository. The chart persists Laravel storage (including the SQLite database) via a PVC and exposes the service through the cluster ingress/virtual service configuration for `simpsons-quotes-api.friedrichs-it.de`.
 
 ## Bruno Collection
 

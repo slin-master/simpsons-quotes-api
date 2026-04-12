@@ -15,8 +15,7 @@ node('docker-agent') {
         def DOCKER_TAG = sh(script: 'git rev-parse --short HEAD', returnStdout: true).trim()
         def AWS_ACCOUNT_ID = sh(script: "aws sts get-caller-identity --query Account --output text", returnStdout: true).trim()
         def DOCKER_REPO_URL = "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
-        def DEPLOY_TAG = env.BRANCH_NAME == 'master' ? 'latest' : env.BRANCH_NAME.replaceAll(/[\\/_]/, '--') + "-${env.BUILD_NUMBER}"
-        def IMAGE_NAME = "${DOCKER_REPO_URL}/${VENDOR}/${PROJECT}:${DEPLOY_TAG}"
+        def IMAGE_TAG = env.BRANCH_NAME.replaceAll(/[\\/_]/, '--') + "-${env.BUILD_NUMBER}"
         echo "Running build ${env.BUILD_NUMBER} on ${env.JENKINS_URL} for ${env.BRANCH_NAME} (${DOCKER_TAG})"
         currentBuild.description = "${env.BRANCH_NAME}-${DOCKER_TAG}-${env.BUILD_NUMBER}"
 
@@ -75,15 +74,22 @@ node('docker-agent') {
             sh "make push AWS_REGION=${AWS_REGION} AWS_ACCOUNT_ID=${AWS_ACCOUNT_ID} BUILD_NUMBER=${env.BUILD_NUMBER} GIT_BRANCH=${env.BRANCH_NAME} GIT_REV=${DOCKER_TAG}"
         }
 
-        def USER = "bix"
-        def HOST = "ferrix"
+        stage('Update Helm Charts') {
+            if (currentBuild.currentResult == 'SUCCESS' && BRANCH_NAME == 'master') {
+                checkout scmGit(
+                    branches: [[name: '*/master']],
+                    extensions: [[$class: 'CleanCheckout'], [$class: 'RelativeTargetDirectory', relativeTargetDir: 'helm-charts']],
+                    userRemoteConfigs: [[credentialsId: 'GITHUB_APP_JENKINS', url: 'https://github.com/apitree/helm-charts.git']]
+                )
 
-        stage("Deploy to ${HOST}") {
-            sshagent(credentials: [HOST]) {
-                sh "ssh -o StrictHostKeyChecking=no ${USER}@${HOST} 'mkdir -p /data/${PROJECT}/data/storage/database /data/${PROJECT}/data/storage/logs'"
-                sh "scp -o StrictHostKeyChecking=no ${env.WORKSPACE}/compose.yaml ${USER}@${HOST}:/data/${PROJECT}/compose.yaml"
-                sh "ssh -o StrictHostKeyChecking=no ${USER}@${HOST} 'printf \"IMAGE_NAME=${IMAGE_NAME}\\n\" > /data/${PROJECT}/.env'"
-                sh "ssh -o StrictHostKeyChecking=no ${USER}@${HOST} 'cd /data/${PROJECT} && docker compose pull && docker compose up -d'"
+                dir('helm-charts') {
+                    sh "sed -i 's/tag: \"[^\"]*\"/tag: \"${IMAGE_TAG}\"/' releases/prod/simpsons-quotes-api.yaml"
+                    sh "git add releases/prod/simpsons-quotes-api.yaml"
+                    sh "git commit -m 'Update ${PROJECT} to ${IMAGE_TAG} for prod deployment' || true"
+                    sshagent(credentials: ['DEPLOY_KEY_JENKINS']) {
+                        sh 'git push git@github.com:apitree/helm-charts.git HEAD:master'
+                    }
+                }
             }
         }
     }
